@@ -1,0 +1,22 @@
+using Dalamud.Configuration;
+using System;
+
+namespace HousingHistory;
+
+[Serializable]
+public class Configuration : IPluginConfiguration
+{
+    public int Version { get; set; } = 0;
+
+    /// <summary>How many log entries to keep before the oldest are dropped.</summary>
+    public int MaxEntries { get; set; } = 500;
+
+    /// <summary>How often (seconds) to snapshot the room and diff it.</summary>
+    public float PollIntervalSeconds { get; set; } = 1.0f;
+
+    public bool ShowPlaced { get; set; } = true;
+    public bool ShowRemoved { get; set; } = true;
+
+    // Saving is exposed here just to keep call sites tidy.
+    public void Save() => Plugin.PluginInterface.SavePluginConfig(this);
+}

@@ -1,0 +1,13 @@
+{
+  "Author": "Ryan",
+  "Name": "Housing History",
+  "Punchline": "A running log of furniture you place and remove.",
+  "Description": "Keeps a timestamped, read-only log of furnishings placed and removed in your house, so you can see what you just changed (and remember what you deleted). Complementary to Burning Down the House. Open with /houselog.",
+  "ApplicableVersion": "any",
+  "Tags": [
+    "housing",
+    "history",
+    "qol",
+    "furniture"
+  ]
+}
