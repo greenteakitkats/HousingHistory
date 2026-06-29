@@ -9,6 +9,7 @@ public enum HistoryAction
     Removed,
     Moved,
     Rotated,
+    Redyed,
 }
 
 /// <summary>One row in the edit-history log.</summary>
@@ -22,5 +23,7 @@ public readonly record struct HistoryEntry(
     float Rotation,          // radians. Moved/Rotated: the NEW rotation.
     Vector3? FromPosition,   // Moved/Rotated only: the previous location.
     float FromRotation,      // Moved/Rotated only: the previous rotation (radians).
+    byte Stain,              // current dye id. Redyed: the NEW dye.
+    byte FromStain,          // Redyed only: the previous dye id.
     ulong HouseId,           // which house this happened in (for multi-house disambiguation)
     ushort TerritoryId);

@@ -11,7 +11,8 @@ diagnostics snapshot (handy after a patch).
 
 ## Features
 
-- **Place / Remove / Move / Rotate** tracking, each with coordinates.
+- **Place / Remove / Move / Rotate / Dye** tracking, with coordinates (and dye
+  names for recolors).
 - **Click any coordinate to copy** `X Y Z` to the clipboard — the greyed "from"
   line of a move is the value you paste back into BDTH to undo it.
 - **Search** box to filter by item name.
@@ -96,7 +97,6 @@ plugin is auto-disabled. The goal is cheap updates and fast detection.
 - **Watch** the XIVLauncher & Dalamud Discord `#dev` and FFXIVClientStructs commits.
 
 ## Roadmap (later)
-- Track **stain/dye** changes (data already captured — add a `Redyed` action)
 - Per-house filter in the UI (house id is already stored)
 - Per-item **undo** via BDTH-style position writing (leaves the read-only safe zone)
 - Outdoor / ward support

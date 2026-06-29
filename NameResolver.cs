@@ -16,6 +16,23 @@ namespace HousingHistory;
 public static class NameResolver
 {
     private static readonly Dictionary<uint, string> Cache = new();
+    private static readonly Dictionary<byte, string> StainCache = new();
+
+    public static string ResolveStain(byte stainId)
+    {
+        if (stainId == 0)
+            return "No dye";
+        if (StainCache.TryGetValue(stainId, out var cached))
+            return cached;
+
+        var sheet = Plugin.DataManager.GetExcelSheet<Lumina.Excel.Sheets.Stain>();
+        var name = sheet.TryGetRow(stainId, out var row) && !string.IsNullOrWhiteSpace(row.Name.ToString())
+            ? row.Name.ToString()
+            : $"Dye #{stainId}";
+
+        StainCache[stainId] = name;
+        return name;
+    }
 
     public static string Resolve(uint furnitureId)
     {

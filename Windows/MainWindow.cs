@@ -12,6 +12,7 @@ public class MainWindow : Window, IDisposable
     private static readonly Vector4 RemovedColor = new(0.92f, 0.52f, 0.40f, 1f);
     private static readonly Vector4 MovedColor = new(0.45f, 0.70f, 0.95f, 1f);
     private static readonly Vector4 RotatedColor = new(0.90f, 0.75f, 0.35f, 1f);
+    private static readonly Vector4 DyedColor = new(0.82f, 0.58f, 0.88f, 1f);
 
     private readonly Plugin plugin;
     private string search = string.Empty;
@@ -40,6 +41,8 @@ public class MainWindow : Window, IDisposable
         ImGui.SameLine();
         DrawFilter("Moved", cfg.ShowMoved, v => { cfg.ShowMoved = v; cfg.Save(); });
         ImGui.SameLine();
+        DrawFilter("Dyed", cfg.ShowDyed, v => { cfg.ShowDyed = v; cfg.Save(); });
+        ImGui.SameLine();
         if (ImGui.Button("Clear"))
             plugin.Monitor.Clear();
 
@@ -56,7 +59,7 @@ public class MainWindow : Window, IDisposable
         ImGui.TableSetupColumn("Time", ImGuiTableColumnFlags.WidthFixed, 70);
         ImGui.TableSetupColumn("Action", ImGuiTableColumnFlags.WidthFixed, 64);
         ImGui.TableSetupColumn("Item", ImGuiTableColumnFlags.WidthStretch);
-        ImGui.TableSetupColumn("Position (X, Y, Z · rot)", ImGuiTableColumnFlags.WidthFixed, 200);
+        ImGui.TableSetupColumn("Details", ImGuiTableColumnFlags.WidthFixed, 200);
         ImGui.TableHeadersRow();
 
         var any = false;
@@ -82,7 +85,12 @@ public class MainWindow : Window, IDisposable
 
             ImGui.TableNextColumn();
             var isMove = e.Action is HistoryAction.Moved or HistoryAction.Rotated;
-            if (isMove && e.FromPosition is { } from)
+            if (e.Action == HistoryAction.Redyed)
+            {
+                ImGui.TextDisabled(NameResolver.ResolveStain(e.FromStain));
+                ImGui.Text("→ " + NameResolver.ResolveStain(e.Stain));
+            }
+            else if (isMove && e.FromPosition is { } from)
             {
                 // Old (greyed) then new. Click either to copy "X Y Z" — the old line is the undo value.
                 CopyableCoord(Format(from, e.FromRotation), from, true, row * 2);
@@ -110,6 +118,7 @@ public class MainWindow : Window, IDisposable
         HistoryAction.Removed => cfg.ShowRemoved,
         HistoryAction.Moved => cfg.ShowMoved,
         HistoryAction.Rotated => cfg.ShowMoved, // rotations share the "Moved" filter
+        HistoryAction.Redyed => cfg.ShowDyed,
         _ => true,
     };
 
@@ -121,6 +130,7 @@ public class MainWindow : Window, IDisposable
             case HistoryAction.Removed: ImGui.TextColored(RemovedColor, "Removed"); break;
             case HistoryAction.Moved: ImGui.TextColored(MovedColor, "Moved"); break;
             case HistoryAction.Rotated: ImGui.TextColored(RotatedColor, "Rotated"); break;
+            case HistoryAction.Redyed: ImGui.TextColored(DyedColor, "Dyed"); break;
         }
     }
 

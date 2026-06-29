@@ -155,11 +155,14 @@ public sealed class HousingMonitor : IDisposable
             {
                 var movedDistance = Vector3.DistanceSquared(before.Position, now.Position) > PositionEpsilon * PositionEpsilon;
                 var rotated = MathF.Abs(before.Rotation - now.Rotation) > RotationEpsilon;
+                var redyed = before.Stain != now.Stain;
 
                 if (movedDistance)
                     LogMovement(HistoryAction.Moved, index, before, now, houseId);
                 else if (rotated)
                     LogMovement(HistoryAction.Rotated, index, before, now, houseId);
+                else if (redyed)
+                    LogRedyed(index, before, now, houseId);
             }
         }
 
@@ -172,7 +175,11 @@ public sealed class HousingMonitor : IDisposable
 
     private void LogSimple(HistoryAction action, int index, FurnitureRecord r, ulong houseId)
         => AddEntry(new HistoryEntry(DateTime.Now, action, index, r.Id, NameResolver.Resolve(r.Id),
-            r.Position, r.Rotation, null, 0f, houseId, Plugin.ClientState.TerritoryType));
+            r.Position, r.Rotation, null, 0f, r.Stain, r.Stain, houseId, Plugin.ClientState.TerritoryType));
+
+    private void LogRedyed(int index, FurnitureRecord before, FurnitureRecord now, ulong houseId)
+        => AddEntry(new HistoryEntry(DateTime.Now, HistoryAction.Redyed, index, now.Id, NameResolver.Resolve(now.Id),
+            now.Position, now.Rotation, null, 0f, now.Stain, before.Stain, houseId, Plugin.ClientState.TerritoryType));
 
     private void LogMovement(HistoryAction action, int index, FurnitureRecord before, FurnitureRecord now, ulong houseId)
     {
@@ -195,7 +202,7 @@ public sealed class HousingMonitor : IDisposable
         }
 
         AddEntry(new HistoryEntry(DateTime.Now, action, index, now.Id, NameResolver.Resolve(now.Id),
-            now.Position, now.Rotation, before.Position, before.Rotation, houseId, Plugin.ClientState.TerritoryType));
+            now.Position, now.Rotation, before.Position, before.Rotation, now.Stain, before.Stain, houseId, Plugin.ClientState.TerritoryType));
     }
 
     private void AddEntry(HistoryEntry entry)
