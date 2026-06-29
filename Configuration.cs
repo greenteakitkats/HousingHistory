@@ -16,6 +16,7 @@ public class Configuration : IPluginConfiguration
 
     public bool ShowPlaced { get; set; } = true;
     public bool ShowRemoved { get; set; } = true;
+    public bool ShowMoved { get; set; } = true;
 
     // Saving is exposed here just to keep call sites tidy.
     public void Save() => Plugin.PluginInterface.SavePluginConfig(this);

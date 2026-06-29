@@ -1,21 +1,30 @@
 using System;
 using System.Collections.Generic;
+using System.Numerics;
 using Dalamud.Plugin.Services;
 using FFXIVClientStructs.FFXIV.Client.Game;
 
 namespace HousingHistory;
 
 /// <summary>
-/// Polls the indoor furniture set each tick and logs additions/removals by diffing
-/// against the previous snapshot. Purely read-only — never writes to game memory.
+/// Polls the indoor furniture set each tick and logs placements, removals, and moves
+/// by diffing against the previous snapshot. Purely read-only — never writes to game memory.
 /// </summary>
 public sealed class HousingMonitor : IDisposable
 {
+    // A single placed object's state at snapshot time.
+    private readonly record struct FurnitureRecord(uint Id, Vector3 Position, float Rotation, byte Stain);
+
+    private const float PositionEpsilon = 0.01f; // yalms; ignore sub-threshold jitter
+    private const float RotationEpsilon = 0.01f; // radians
+    private const double MoveCoalesceSeconds = 5.0;
+
     private readonly Plugin plugin;
     private readonly List<HistoryEntry> entries = new();
 
-    // itemId -> count, so duplicate furnishings (two identical chairs) diff correctly.
-    private Dictionary<uint, int> baseline = new();
+    // Keyed by HousingFurniture.Index (a stable per-object id), so we can follow each
+    // physical item's position across snapshots — and duplicate furnishings stay distinct.
+    private Dictionary<int, FurnitureRecord> baseline = new();
     private bool haveBaseline;
     private DateTime lastPoll = DateTime.MinValue;
 
@@ -38,7 +47,7 @@ public sealed class HousingMonitor : IDisposable
 
     private void OnTerritoryChanged(ushort territory)
     {
-        // Changing zones invalidates the baseline; it will reseed silently on the next read.
+        // Changing zones invalidates the baseline; it reseeds silently on the next read.
         haveBaseline = false;
         baseline.Clear();
     }
@@ -53,7 +62,7 @@ public sealed class HousingMonitor : IDisposable
         var current = ReadCurrentFurniture();
         if (current == null)
         {
-            // Not in a readable house (e.g. left the building) — drop baseline so re-entry reseeds.
+            // Not in a readable house — drop baseline so re-entry reseeds.
             haveBaseline = false;
             return;
         }
@@ -64,12 +73,8 @@ public sealed class HousingMonitor : IDisposable
             baseline = current;
             haveBaseline = true;
 
-            // Sanity check for first compile/run: confirms GetFurnitureManager()/FurnitureMemory
-            // resolved and we can actually read the room. Shows up in /xllog.
-            var total = 0;
-            foreach (var n in current.Values) total += n;
-            Plugin.Log.Information(
-                $"Baseline seeded: {current.Count} furnishing type(s), {total} item(s).");
+            // Sanity check for first compile/run: confirms the housing reads resolved. See /xllog.
+            Plugin.Log.Information($"Baseline seeded: {current.Count} item(s).");
             return;
         }
 
@@ -77,46 +82,84 @@ public sealed class HousingMonitor : IDisposable
         baseline = current;
     }
 
-    private void DiffAndLog(Dictionary<uint, int> oldSet, Dictionary<uint, int> newSet)
+    private void DiffAndLog(Dictionary<int, FurnitureRecord> oldSet, Dictionary<int, FurnitureRecord> newSet)
     {
-        // Count increased -> placed.
-        foreach (var (id, newCount) in newSet)
+        foreach (var (index, now) in newSet)
         {
-            oldSet.TryGetValue(id, out var oldCount);
-            for (var i = 0; i < newCount - oldCount; i++)
-                Add(HistoryAction.Placed, id);
+            if (!oldSet.TryGetValue(index, out var before))
+            {
+                LogPlaced(index, now);
+            }
+            else if (before.Id != now.Id)
+            {
+                // The game reused this object slot for a different furnishing.
+                LogRemoved(index, before);
+                LogPlaced(index, now);
+            }
+            else if (HasMoved(before, now))
+            {
+                LogMoved(index, before, now);
+            }
         }
 
-        // Count decreased -> removed.
-        foreach (var (id, oldCount) in oldSet)
+        foreach (var (index, before) in oldSet)
         {
-            newSet.TryGetValue(id, out var newCount);
-            for (var i = 0; i < oldCount - newCount; i++)
-                Add(HistoryAction.Removed, id);
+            if (!newSet.ContainsKey(index))
+                LogRemoved(index, before);
         }
     }
 
-    private void Add(HistoryAction action, uint id)
-    {
-        entries.Insert(0, new HistoryEntry(
-            DateTime.Now,
-            action,
-            id,
-            NameResolver.Resolve(id),
+    private static bool HasMoved(FurnitureRecord a, FurnitureRecord b)
+        => Vector3.DistanceSquared(a.Position, b.Position) > PositionEpsilon * PositionEpsilon
+        || MathF.Abs(a.Rotation - b.Rotation) > RotationEpsilon;
+
+    private void LogPlaced(int index, FurnitureRecord r)
+        => AddEntry(new HistoryEntry(DateTime.Now, HistoryAction.Placed, index, r.Id,
+            NameResolver.Resolve(r.Id), r.Position, r.Rotation, null, 0f,
             Plugin.ClientState.TerritoryType));
+
+    private void LogRemoved(int index, FurnitureRecord r)
+        => AddEntry(new HistoryEntry(DateTime.Now, HistoryAction.Removed, index, r.Id,
+            NameResolver.Resolve(r.Id), r.Position, r.Rotation, null, 0f,
+            Plugin.ClientState.TerritoryType));
+
+    private void LogMoved(int index, FurnitureRecord before, FurnitureRecord now)
+    {
+        // Coalesce a drag (many small updates) into a single row: keep the original
+        // "from", just refresh the "to". Makes "move it back" show the net change.
+        if (entries.Count > 0)
+        {
+            var top = entries[0];
+            if (top.Action == HistoryAction.Moved
+                && top.ObjectIndex == index
+                && (DateTime.Now - top.Time).TotalSeconds < MoveCoalesceSeconds)
+            {
+                entries[0] = top with { Time = DateTime.Now, Position = now.Position, Rotation = now.Rotation };
+                return;
+            }
+        }
+
+        AddEntry(new HistoryEntry(DateTime.Now, HistoryAction.Moved, index, now.Id,
+            NameResolver.Resolve(now.Id), now.Position, now.Rotation,
+            before.Position, before.Rotation, Plugin.ClientState.TerritoryType));
+    }
+
+    private void AddEntry(HistoryEntry entry)
+    {
+        entries.Insert(0, entry);
 
         var max = Math.Max(10, plugin.Configuration.MaxEntries);
         if (entries.Count > max)
             entries.RemoveRange(max, entries.Count - max);
 
-        Plugin.Log.Debug($"{action}: {NameResolver.Resolve(id)} (#{id})");
+        Plugin.Log.Debug($"{entry.Action}: {entry.ItemName} (#{entry.FurnitureId}) @ {entry.Position}");
     }
 
     /// <summary>
-    /// Reads the current indoor furniture set as a multiset of furnishing ids.
+    /// Reads the current indoor furniture as a map of object-index -> state.
     /// Returns null when there's nothing readable (not inside a house).
     /// </summary>
-    private unsafe Dictionary<uint, int>? ReadCurrentFurniture()
+    private unsafe Dictionary<int, FurnitureRecord>? ReadCurrentFurniture()
     {
         var manager = HousingManager.Instance();
         if (manager == null)
@@ -130,20 +173,21 @@ public sealed class HousingMonitor : IDisposable
         if (furnitureManager == null)
             return null;
 
-        var counts = new Dictionary<uint, int>();
+        var map = new Dictionary<int, FurnitureRecord>();
 
-        // FurnitureMemory is the generated accessor for the `_furnitureMemory` fixed array (length 1462).
-        // Index 1461 is the temporary/preview object while dragging, so we skip the last slot.
+        // FurnitureMemory is the generated accessor for `_furnitureMemory` (length 1462).
+        // Index 1461 is the temporary/preview object while dragging, so skip the last slot.
         var span = furnitureManager->FurnitureMemory;
         for (var i = 0; i < span.Length - 1; i++)
         {
-            var id = span[i].Id;
-            if (id == 0)
+            ref var f = ref span[i];
+            if (f.Id == 0)
                 continue; // empty slot
 
-            counts[id] = counts.GetValueOrDefault(id) + 1;
+            var pos = new Vector3(f.Position.X, f.Position.Y, f.Position.Z);
+            map[f.Index] = new FurnitureRecord(f.Id, pos, f.Rotation, f.Stain);
         }
 
-        return counts;
+        return map;
     }
 }
