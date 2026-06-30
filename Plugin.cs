@@ -50,6 +50,7 @@ public sealed class Plugin : IDalamudPlugin
         PluginInterface.UiBuilder.OpenMainUi += ToggleMainUi;
 
         AddonLifecycle.RegisterListener(AddonEvent.PostSetup, HousingAddons, OnHousingAddon);
+        AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, HousingAddons, OnHousingAddonClose);
 
         Log.Information("Housing History loaded.");
     }
@@ -60,6 +61,7 @@ public sealed class Plugin : IDalamudPlugin
         PluginInterface.UiBuilder.OpenMainUi -= ToggleMainUi;
 
         AddonLifecycle.UnregisterListener(OnHousingAddon);
+        AddonLifecycle.UnregisterListener(OnHousingAddonClose);
 
         WindowSystem.RemoveAllWindows();
         MainWindow.Dispose();
@@ -84,5 +86,11 @@ public sealed class Plugin : IDalamudPlugin
     {
         if (Configuration.AutoOpenWithHousing)
             MainWindow.IsOpen = true;
+    }
+
+    private void OnHousingAddonClose(AddonEvent type, AddonArgs args)
+    {
+        if (Configuration.AutoOpenWithHousing)
+            MainWindow.IsOpen = false;
     }
 }

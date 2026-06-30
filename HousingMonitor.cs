@@ -34,13 +34,17 @@ public sealed class HousingMonitor : IDisposable
     private long lastStamp = long.MinValue;
     private DateTime lastPoll = DateTime.MinValue;
 
-    // Furniture streams in after a zone load; wait for the item count to hold steady across
-    // a couple of polls before trusting a snapshot as the baseline, otherwise the load-in
-    // reads as a flood of placements every time you enter.
-    private const int SettleReads = 2;
+    // Furniture streams in after a zone load — often reading empty or partial at first.
+    // We ignore empty reads during a grace window and wait for the item count to hold
+    // steady for several polls (and a minimum dwell) before trusting it as the baseline,
+    // otherwise the load-in reads as a flood of placements every time you enter.
+    private const int SettleReads = 3;
+    private const double MinDwellSeconds = 5.0;
+    private const double EmptyGraceSeconds = 15.0;
     private int settleCount;
     private int settleLastCount = -1;
     private ulong settleHouseId;
+    private DateTime houseFirstSeen;
 
     // When true, entries created by the current diff are tagged as detected-on-entry.
     private bool markAway;
@@ -76,6 +80,7 @@ public sealed class HousingMonitor : IDisposable
         // Changing zones invalidates the live baseline; it re-establishes on the next read.
         haveBaseline = false;
         baseline.Clear();
+        settleHouseId = 0;
         settleLastCount = -1;
         settleCount = 0;
     }
@@ -138,16 +143,31 @@ public sealed class HousingMonitor : IDisposable
         // share a TerritoryType, so we key off HouseId, not territory).
         if (!haveBaseline || houseId != baselineHouseId)
         {
-            // Wait for the furniture list to finish streaming in (count stable across a few
-            // polls) before establishing the baseline — see SettleReads above.
-            if (settleHouseId != houseId || current.Count != settleLastCount)
+            // New house in view — start the settle/grace timers.
+            if (settleHouseId != houseId)
             {
                 settleHouseId = houseId;
+                settleLastCount = -1;
+                settleCount = 0;
+                houseFirstSeen = DateTime.UtcNow;
+                return;
+            }
+
+            var dwell = (DateTime.UtcNow - houseFirstSeen).TotalSeconds;
+
+            // Ignore empty reads while furniture is still streaming in, so an in-progress
+            // load isn't mistaken for an empty house (and then flooded as items appear).
+            if (current.Count == 0 && dwell < EmptyGraceSeconds)
+                return;
+
+            // Require the count to hold steady for a few polls, plus a minimum dwell.
+            if (current.Count != settleLastCount)
+            {
                 settleLastCount = current.Count;
                 settleCount = 0;
                 return;
             }
-            if (++settleCount < SettleReads)
+            if (++settleCount < SettleReads || dwell < MinDwellSeconds)
                 return;
 
             if (savedLayouts.TryGetValue(houseId, out var lastKnown))
@@ -166,6 +186,7 @@ public sealed class HousingMonitor : IDisposable
             baseline = current;
             baselineHouseId = houseId;
             haveBaseline = true;
+            settleHouseId = 0;
             settleLastCount = -1;
             settleCount = 0;
             RememberLayout(houseId, current);
@@ -207,11 +228,11 @@ public sealed class HousingMonitor : IDisposable
     }
 
     private void LogSimple(HistoryAction action, int index, FurnitureRecord r, ulong houseId)
-        => AddEntry(new HistoryEntry(DateTime.Now, action, index, r.Id, NameResolver.Resolve(r.Id),
+        => AddEntry(new HistoryEntry(DateTime.Now, action, index, r.RowId, NameResolver.Resolve(r.RowId),
             r.Position, r.Rotation, null, 0f, r.Stain, r.Stain, houseId, Plugin.ClientState.TerritoryType, markAway));
 
     private void LogRedyed(int index, FurnitureRecord before, FurnitureRecord now, ulong houseId)
-        => AddEntry(new HistoryEntry(DateTime.Now, HistoryAction.Redyed, index, now.Id, NameResolver.Resolve(now.Id),
+        => AddEntry(new HistoryEntry(DateTime.Now, HistoryAction.Redyed, index, now.RowId, NameResolver.Resolve(now.RowId),
             now.Position, now.Rotation, null, 0f, now.Stain, before.Stain, houseId, Plugin.ClientState.TerritoryType, markAway));
 
     private void LogMovement(HistoryAction action, int index, FurnitureRecord before, FurnitureRecord now, ulong houseId)
@@ -235,7 +256,7 @@ public sealed class HousingMonitor : IDisposable
             }
         }
 
-        AddEntry(new HistoryEntry(DateTime.Now, action, index, now.Id, NameResolver.Resolve(now.Id),
+        AddEntry(new HistoryEntry(DateTime.Now, action, index, now.RowId, NameResolver.Resolve(now.RowId),
             now.Position, now.Rotation, before.Position, before.Rotation, now.Stain, before.Stain,
             houseId, Plugin.ClientState.TerritoryType, markAway));
     }
@@ -269,10 +290,25 @@ public sealed class HousingMonitor : IDisposable
             if (float.IsNaN(pos.X) || float.IsNaN(pos.Y) || float.IsNaN(pos.Z))
                 return null; // garbage read (e.g. shifted offsets) — signal a bad snapshot
 
-            map[f.Index] = new FurnitureRecord(f.Id, pos, f.Rotation, f.Stain);
+            map[f.Index] = new FurnitureRecord(f.Id, ReadRowId(furnitureManager, f.Index), pos, f.Rotation, f.Stain);
         }
 
         return map;
+    }
+
+    /// <summary>
+    /// The HousingFurniture sheet row for a placed object, read from the furniture game
+    /// object (its GimmickId) via the object manager. This — not HousingFurniture.Id — is
+    /// what maps to the item name. See MakePlace for the reference implementation.
+    /// </summary>
+    private static unsafe uint ReadRowId(HousingFurnitureManager* furnitureManager, int index)
+    {
+        var objects = &furnitureManager->ObjectManager.ObjectArray;
+        if (index < 0 || index >= objects->ObjectCount)
+            return 0;
+
+        var gameObject = objects->Objects[index].Value;
+        return gameObject != null ? gameObject->GimmickId : 0u;
     }
 
     /// <summary>
@@ -305,10 +341,11 @@ public sealed class HousingMonitor : IDisposable
                     continue;
 
                 count++;
-                if (shown < 5)
+                if (shown < 8)
                 {
+                    var rowId = ReadRowId(furnitureManager, f.Index);
                     Plugin.Log.Information(
-                        $"[dump]  idx={f.Index} id={f.Id} name=\"{NameResolver.Resolve(f.Id)}\" " +
+                        $"[dump]  idx={f.Index} rawId={f.Id} rowId={rowId} name=\"{NameResolver.Resolve(rowId)}\" " +
                         $"pos=({f.Position.X:0.00}, {f.Position.Y:0.00}, {f.Position.Z:0.00})");
                     shown++;
                 }

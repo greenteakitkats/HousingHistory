@@ -11,7 +11,7 @@ void Check(bool condition, string name)
 }
 
 static FurnitureRecord R(uint id, float x = 0, float y = 0, float z = 0, float rot = 0, byte stain = 0)
-    => new(id, new Vector3(x, y, z), rot, stain);
+    => new(id, id, new Vector3(x, y, z), rot, stain);
 
 static Dictionary<int, FurnitureRecord> D(params (int index, FurnitureRecord rec)[] items)
 {
