@@ -22,6 +22,12 @@ public class Configuration : IPluginConfiguration
     /// <summary>Open the log automatically when the housing furnishing menu appears.</summary>
     public bool AutoOpenWithHousing { get; set; } = true;
 
+    /// <summary>Only show entries newer than when the window was last closed.</summary>
+    public bool ShowOnlySinceLastOpen { get; set; } = false;
+
+    /// <summary>When the window was last closed — the watermark for "new only".</summary>
+    public DateTime SeenWatermark { get; set; } = DateTime.MinValue;
+
     // Saving is exposed here just to keep call sites tidy.
     public void Save() => Plugin.PluginInterface.SavePluginConfig(this);
 }

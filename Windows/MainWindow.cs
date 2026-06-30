@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Textures;
@@ -32,6 +33,13 @@ public class MainWindow : Window, IDisposable
 
     public void Dispose() { }
 
+    public override void OnClose()
+    {
+        // Watermark for the "new only" filter — anything after this is "since last open".
+        plugin.Configuration.SeenWatermark = DateTime.Now;
+        plugin.Configuration.Save();
+    }
+
     public override void Draw()
     {
         var cfg = plugin.Configuration;
@@ -53,6 +61,10 @@ public class MainWindow : Window, IDisposable
         DrawFilter("Auto-open", cfg.AutoOpenWithHousing, v => { cfg.AutoOpenWithHousing = v; cfg.Save(); });
         if (ImGui.IsItemHovered())
             ImGui.SetTooltip("Open this window automatically when the housing menu appears.");
+        ImGui.SameLine();
+        DrawFilter("New only", cfg.ShowOnlySinceLastOpen, v => { cfg.ShowOnlySinceLastOpen = v; cfg.Save(); });
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("Only show changes since you last closed this window.");
 
         DrawTodaySummary();
         ImGui.Separator();
@@ -62,7 +74,7 @@ public class MainWindow : Window, IDisposable
         if (!table.Success)
             return;
 
-        ImGui.TableSetupColumn("Time", ImGuiTableColumnFlags.WidthFixed, 70);
+        ImGui.TableSetupColumn("When", ImGuiTableColumnFlags.WidthFixed, 110);
         ImGui.TableSetupColumn("Action", ImGuiTableColumnFlags.WidthFixed, 64);
         ImGui.TableSetupColumn("Item", ImGuiTableColumnFlags.WidthStretch);
         ImGui.TableSetupColumn("Details", ImGuiTableColumnFlags.WidthFixed, 200);
@@ -76,12 +88,14 @@ public class MainWindow : Window, IDisposable
                 continue;
             if (search.Length > 0 && e.ItemName.IndexOf(search, StringComparison.OrdinalIgnoreCase) < 0)
                 continue;
+            if (cfg.ShowOnlySinceLastOpen && e.Time <= cfg.SeenWatermark)
+                continue;
 
             any = true;
             ImGui.TableNextRow();
 
             ImGui.TableNextColumn();
-            ImGui.Text(e.Time.ToString("HH:mm:ss"));
+            ImGui.Text(FormatWhen(e.Time));
 
             ImGui.TableNextColumn();
             DrawAction(e.Action);
@@ -210,6 +224,16 @@ public class MainWindow : Window, IDisposable
         ImGui.ColorButton($"##dye{id}", NameResolver.ResolveStainColor(stainId),
             ImGuiColorEditFlags.NoAlpha | ImGuiColorEditFlags.NoPicker | ImGuiColorEditFlags.NoTooltip,
             new Vector2(14, 14));
+    }
+
+    private static string FormatWhen(DateTime t)
+    {
+        // Culture-aware: 12h AM/PM or 24h follows the player's OS locale. Show the date too
+        // when it isn't today, since houses aren't edited every day.
+        var c = CultureInfo.CurrentCulture;
+        return t.Date == DateTime.Now.Date
+            ? t.ToString("t", c)
+            : $"{t.ToString("d", c)} {t.ToString("t", c)}";
     }
 
     private static string Format(Vector3 p, float rotationRadians)
