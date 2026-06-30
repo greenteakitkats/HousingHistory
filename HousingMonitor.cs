@@ -312,7 +312,9 @@ public sealed class HousingMonitor : IDisposable
             return 0;
 
         var gameObject = objects->Objects[index].Value;
-        return gameObject != null ? gameObject->GimmickId : 0u;
+        // The HousingFurniture sheet row lives in the game object's BaseId (offset 0x84).
+        // Confirmed against ReMakePlace, whose housingRowId is at 0x84 on the current client.
+        return gameObject != null ? gameObject->BaseId : 0u;
     }
 
     /// <summary>
