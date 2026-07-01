@@ -1,5 +1,5 @@
 {
-  "Author": "Ryan",
+  "Author": "greenteakitkats",
   "Name": "Housing History",
   "Punchline": "A running log of furniture you place and remove.",
   "Description": "A read-only log of furnishings placed, removed, moved, rotated, and dyed in your house — with coordinates, dye names, item icons, and a 'since last visit' diff. Click any coordinate to copy it (handy for undoing a move). Complementary to Burning Down the House. Open with /houselog.",
