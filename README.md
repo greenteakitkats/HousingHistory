@@ -1,67 +1,73 @@
 # Housing History
 
-A read-only Dalamud plugin that keeps a timestamped log of every change you make
-to your FFXIV house — furnishings **placed, removed, moved, rotated, and dyed** —
-with coordinates, so you can see what you just did and undo mistakes. A companion
-to *Burning Down the House*: BDTH does precise placement, this remembers what you
-changed.
+Housing History quietly keeps track of everything you do while decorating your
+FFXIV house. Whenever you place, remove, move, rotate, or dye a furnishing, it
+writes it down with a timestamp and the exact coordinates, so you can look back
+at what you just did and put things right if you change your mind. Think of it as
+the memory that goes with Burning Down the House. BDTH handles the precise
+placement, and this one remembers how everything used to be.
 
-> It only watches — it never edits your house.
+> By default it just watches and never touches your house.
 
 ## Features
 
-- Logs **placements, removals, moves, rotations, and dye changes**, with timestamps
-- **Coordinates** for everything — **click a coordinate to copy** `X Y Z` to your
-  clipboard (paste it back into BDTH to undo a move)
-- **Apply mode** (opt-in) — click a coordinate to snap the item you have selected in
-  housing layout mode straight to it, for true one-click undo (writes like BDTH)
-- **Item icons** and **dye color swatches** so the log is easy to scan
-- **Search**, per-action **filters**, and a **"today" summary**
-- **"Since last visit"** — when you return to a house, see what changed while you
-  were away
-- **Remembers history across sessions**
-- **Auto-opens** when the housing menu appears (toggleable)
-- **Multi-house aware**
+- Logs every placement, removal, move, rotation, and dye change, each with a timestamp.
+- Shows coordinates for everything. Click one to copy it, then paste it back into
+  BDTH to undo a move.
+- Apply mode (optional): click a coordinate and the item you have selected in
+  layout mode jumps right to it, so undoing a move is a single click.
+- Item icons and dye color swatches so the log is easy to skim.
+- Search, filters for each kind of change, and a quick "today" summary.
+- When you come back to a house, it shows you what changed while you were away.
+- Remembers your history between sessions.
+- Opens itself when the housing menu shows up (you can turn this off).
+- Keeps separate history for each of your houses.
 
 ## Install
 
-1. In-game, open `/xlsettings` → **Experimental** → **Custom Plugin Repositories**.
+1. In-game, open `/xlsettings`, go to **Experimental**, then **Custom Plugin Repositories**.
 2. Add this URL and enable it:
    ```
    https://raw.githubusercontent.com/greenteakitkats/DalamudPlugins/main/repo.json
    ```
-3. Open `/xlplugins`, search **Housing History**, and click **Install**.
+3. Open `/xlplugins`, search for **Housing History**, and click **Install**.
 
-> The custom-repo manifest lives in
-> [greenteakitkats/DalamudPlugins](https://github.com/greenteakitkats/DalamudPlugins)
-> (shared across all these plugins), which regenerates itself from each latest release.
+> The repository manifest lives in
+> [greenteakitkats/DalamudPlugins](https://github.com/greenteakitkats/DalamudPlugins),
+> which is shared across all of these plugins and updates itself from each new release.
 
 ## Usage
 
-- `/houselog` — open the log.
-- Each row shows **time · action · item · coordinates** (or the dye change for recolors).
-- **Click any coordinate** to copy it to your clipboard. The greyed "from" line of a
-  move is the value to paste back into BDTH to put something back.
-- Use the checkboxes to filter which actions show, and the search box to find an item.
-- `/houselog dump` — print a diagnostics snapshot to `/xllog` (handy after a game patch).
+- Type `/houselog` to open the log.
+- Each row shows the time, the action, the item, and its coordinates (or the dye
+  change for recolors).
+- Click any coordinate to copy it. On a move, the greyed "from" line is the value
+  you paste back into BDTH to put something back where it was.
+- Use the checkboxes to choose which changes to show, and the search box to find a
+  specific item.
+- Turn on Apply mode if you'd rather click a coordinate and have the selected item
+  jump straight there.
+- Type `/houselog dump` to print a quick diagnostics snapshot to `/xllog` (handy
+  right after a game patch).
 
 ## Good to know
 
-- **Indoor furnishings only** for now.
-- It logs *what* changed, never *who* — the game doesn't expose who edited a house.
-- It's **read-only by default**, in line with Dalamud's plugin policy. The optional
-  *Apply mode* is the one exception — it moves the selected item exactly like Burning
-  Down the House, and only while you have an item selected in layout mode.
+- For now it only tracks furnishings indoors.
+- It can tell you what changed, but not who did it. The game doesn't share that
+  with plugins.
+- Out of the box it only watches and never changes anything, which keeps it in line
+  with Dalamud's plugin rules. Apply mode is the one exception, and even then it only
+  nudges the item you already have selected, exactly the way Burning Down the House does.
 
-## Building / contributing
+## Building and contributing
 
 See [DEVELOPING.md](DEVELOPING.md).
 
 ## Credits
 
-- Created and maintained by [@greenteakitkats](https://github.com/greenteakitkats).
-- Furniture data resolution references [ReMakePlace](https://github.com/RemakePlace/plugin).
-- Built to complement [Burning Down the House](https://github.com/LeonBlade/BDTHPlugin).
+- Made and maintained by [@greenteakitkats](https://github.com/greenteakitkats).
+- Furniture name lookup follows [ReMakePlace](https://github.com/RemakePlace/plugin).
+- Built to work alongside [Burning Down the House](https://github.com/LeonBlade/BDTHPlugin).
 
 ## License
 

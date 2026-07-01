@@ -5,7 +5,7 @@ namespace HousingHistory;
 
 /// <summary>
 /// Optional write path (off by default): moves the item currently selected in the game's
-/// housing layout (rotate) mode to a given position — the same mechanism Burning Down the
+/// housing layout (rotate) mode to a given position, the same mechanism Burning Down the
 /// House uses. Guarded so it only ever writes when an item is actively selected for editing.
 /// This is the only part of the plugin that writes to the game.
 /// </summary>

@@ -25,7 +25,7 @@ public class Configuration : IPluginConfiguration
     /// <summary>Only show entries newer than when the window was last closed.</summary>
     public bool ShowOnlySinceLastOpen { get; set; } = false;
 
-    /// <summary>When the window was last closed — the watermark for "new only".</summary>
+    /// <summary>When the window was last closed, the watermark for "new only".</summary>
     public DateTime SeenWatermark { get; set; } = DateTime.MinValue;
 
     /// <summary>

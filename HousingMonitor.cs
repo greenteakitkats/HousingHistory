@@ -24,7 +24,7 @@ public sealed class HousingMonitor : IDisposable
     private readonly List<HistoryEntry> entries = new();
 
     // Last-known full layout per house (houseId -> index -> state). Persisted so we can
-    // diff "what changed since last visit" — including changes made while you were away.
+    // diff "what changed since last visit", including changes made while you were away.
     private Dictionary<ulong, Dictionary<int, FurnitureRecord>> savedLayouts = new();
 
     // Live working state for the house we're currently inside.
@@ -34,7 +34,7 @@ public sealed class HousingMonitor : IDisposable
     private long lastStamp = long.MinValue;
     private DateTime lastPoll = DateTime.MinValue;
 
-    // Furniture streams in after a zone load — often reading empty or partial at first.
+    // Furniture streams in after a zone load, often reading empty or partial at first.
     // We ignore empty reads during a grace window and wait for the item count to hold
     // steady for several polls (and a minimum dwell) before trusting it as the baseline,
     // otherwise the load-in reads as a flood of placements every time you enter.
@@ -125,7 +125,7 @@ public sealed class HousingMonitor : IDisposable
         }
 
         // LastUpdate bumps ~every 200ms when furniture state changes. If it hasn't moved
-        // since we last processed, there's nothing to diff — skip the snapshot build.
+        // since we last processed, there's nothing to diff, skip the snapshot build.
         var stamp = furnitureManager->LastUpdate;
         var houseId = (ulong)manager->GetCurrentHouseId();
         if (haveBaseline && houseId == baselineHouseId && stamp == lastStamp)
@@ -135,7 +135,7 @@ public sealed class HousingMonitor : IDisposable
         var current = BuildSnapshot(furnitureManager);
         if (current == null)
         {
-            haveBaseline = false; // garbage read — wait for a clean one
+            haveBaseline = false; // garbage read, wait for a clean one
             return;
         }
 
@@ -143,7 +143,7 @@ public sealed class HousingMonitor : IDisposable
         // share a TerritoryType, so we key off HouseId, not territory).
         if (!haveBaseline || houseId != baselineHouseId)
         {
-            // New house in view — start the settle/grace timers.
+            // New house in view, start the settle/grace timers.
             if (settleHouseId != houseId)
             {
                 settleHouseId = houseId;
@@ -172,14 +172,14 @@ public sealed class HousingMonitor : IDisposable
 
             if (savedLayouts.TryGetValue(houseId, out var lastKnown))
             {
-                // We've been here before — log only what's different since last visit.
+                // We've been here before, log only what's different since last visit.
                 markAway = true;
                 try { DiffAndLog(lastKnown, current, houseId); }
                 finally { markAway = false; }
             }
             else
             {
-                // First time we've ever seen this house — seed silently.
+                // First time we've ever seen this house, seed silently.
                 Plugin.Log.Information($"First visit to house {houseId:X}: {current.Count} item(s).");
             }
 
@@ -292,7 +292,7 @@ public sealed class HousingMonitor : IDisposable
 
             var pos = new Vector3(f.Position.X, f.Position.Y, f.Position.Z);
             if (float.IsNaN(pos.X) || float.IsNaN(pos.Y) || float.IsNaN(pos.Z))
-                return null; // garbage read (e.g. shifted offsets) — signal a bad snapshot
+                return null; // garbage read (e.g. shifted offsets), signal a bad snapshot
 
             map[f.Index] = new FurnitureRecord(f.Id, ReadRowId(furnitureManager, f.Index), pos, f.Rotation, f.Stain);
         }
@@ -302,7 +302,7 @@ public sealed class HousingMonitor : IDisposable
 
     /// <summary>
     /// The HousingFurniture sheet row for a placed object, read from the furniture game
-    /// object (its GimmickId) via the object manager. This — not HousingFurniture.Id — is
+    /// object (its GimmickId) via the object manager. This, not HousingFurniture.Id, is
     /// what maps to the item name. See MakePlace for the reference implementation.
     /// </summary>
     private static unsafe uint ReadRowId(HousingFurnitureManager* furnitureManager, int index)
@@ -412,7 +412,7 @@ public sealed class HousingMonitor : IDisposable
         }
         catch (Exception ex)
         {
-            // Non-critical — a bad/old file just means we start with an empty log/layouts.
+            // Non-critical, a bad/old file just means we start with an empty log/layouts.
             Plugin.Log.Warning(ex, "Could not load saved history; starting fresh.");
         }
     }

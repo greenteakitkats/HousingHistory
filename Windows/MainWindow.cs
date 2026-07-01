@@ -35,7 +35,7 @@ public class MainWindow : Window, IDisposable
 
     public override void OnClose()
     {
-        // Watermark for the "new only" filter — anything after this is "since last open".
+        // Watermark for the "new only" filter, anything after this is "since last open".
         plugin.Configuration.SeenWatermark = DateTime.Now;
         plugin.Configuration.Save();
     }
@@ -118,7 +118,7 @@ public class MainWindow : Window, IDisposable
                 ImGui.SameLine();
                 ImGui.TextDisabled("(away)");
                 if (ImGui.IsItemHovered())
-                    ImGui.SetTooltip("Detected when you entered — changed since your last visit.");
+                    ImGui.SetTooltip("This changed while you were away. Spotted when you walked back in.");
             }
 
             ImGui.TableNextColumn();
@@ -137,7 +137,7 @@ public class MainWindow : Window, IDisposable
             }
             else if (isMove && e.FromPosition is { } from)
             {
-                // Old (greyed) then new. Click either to copy "X Y Z" — the old line is the undo value.
+                // Old (greyed) then new. Click either to copy "X Y Z", the old line is the undo value.
                 CopyableCoord(Format(from, e.FromRotation), from, true, row * 2);
                 CopyableCoord("→ " + Format(e.Position, e.Rotation), e.Position, false, row * 2 + 1);
             }
