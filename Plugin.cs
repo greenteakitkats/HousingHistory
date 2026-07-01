@@ -32,6 +32,8 @@ public sealed class Plugin : IDalamudPlugin
     public readonly WindowSystem WindowSystem = new("HousingHistory");
     private MainWindow MainWindow { get; init; }
 
+    private bool addonLogging;
+
     public Plugin()
     {
         Configuration = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
@@ -43,7 +45,7 @@ public sealed class Plugin : IDalamudPlugin
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
-            HelpMessage = "Open the housing edit-history log. \"/houselog dump\" logs a diagnostics snapshot.",
+            HelpMessage = "Open the housing edit-history log. \"/houselog dump\" logs a diagnostics snapshot; \"/houselog addons\" logs addon names (to identify a window).",
         });
 
         PluginInterface.UiBuilder.Draw += WindowSystem.Draw;
@@ -62,6 +64,8 @@ public sealed class Plugin : IDalamudPlugin
 
         AddonLifecycle.UnregisterListener(OnHousingAddon);
         AddonLifecycle.UnregisterListener(OnHousingAddonClose);
+        if (addonLogging)
+            AddonLifecycle.UnregisterListener(OnAnyAddonSetup);
 
         WindowSystem.RemoveAllWindows();
         MainWindow.Dispose();
@@ -72,14 +76,38 @@ public sealed class Plugin : IDalamudPlugin
 
     private void OnCommand(string command, string args)
     {
-        if (args.Trim().Equals("dump", StringComparison.OrdinalIgnoreCase))
+        switch (args.Trim().ToLowerInvariant())
         {
-            Monitor.LogDiagnostics();
-            return;
+            case "dump":
+                Monitor.LogDiagnostics();
+                return;
+            case "addons":
+                ToggleAddonLogging();
+                return;
+            default:
+                MainWindow.Toggle();
+                return;
         }
-
-        MainWindow.Toggle();
     }
+
+    private void ToggleAddonLogging()
+    {
+        addonLogging = !addonLogging;
+        if (addonLogging)
+        {
+            AddonLifecycle.RegisterListener(AddonEvent.PostSetup, OnAnyAddonSetup);
+            Log.Information("[addons] Logging on. Open the dye window, note the names in /xllog, then run /houselog addons again to stop.");
+        }
+        else
+        {
+            AddonLifecycle.UnregisterListener(OnAnyAddonSetup);
+            Log.Information("[addons] Logging off.");
+        }
+    }
+
+    private void OnAnyAddonSetup(AddonEvent type, AddonArgs args)
+        => Log.Information($"[addons] opened: {args.AddonName}");
+
     private void ToggleMainUi() => MainWindow.Toggle();
 
     private void OnHousingAddon(AddonEvent type, AddonArgs args)

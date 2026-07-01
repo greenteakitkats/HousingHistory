@@ -49,6 +49,11 @@ public sealed class HousingMonitor : IDisposable
     // When true, entries created by the current diff are tagged as detected-on-entry.
     private bool markAway;
 
+    // Dye previews change an item's stain live, so we hold a dye change until it settles on
+    // a color (or is cancelled) rather than logging every color you hover over.
+    private const double DyeSettleSeconds = 2.5;
+    private readonly Dictionary<int, (byte target, DateTime since)> pendingDye = new();
+
     private bool dirty;
     private DateTime lastSave = DateTime.MinValue;
 
@@ -83,6 +88,7 @@ public sealed class HousingMonitor : IDisposable
         settleHouseId = 0;
         settleLastCount = -1;
         settleCount = 0;
+        pendingDye.Clear();
     }
 
     private void OnUpdate(IFramework framework)
@@ -174,7 +180,7 @@ public sealed class HousingMonitor : IDisposable
             {
                 // We've been here before, log only what's different since last visit.
                 markAway = true;
-                try { DiffAndLog(lastKnown, current, houseId); }
+                try { DiffAndLog(lastKnown, current, houseId, live: false); }
                 finally { markAway = false; }
             }
             else
@@ -189,13 +195,14 @@ public sealed class HousingMonitor : IDisposable
             settleHouseId = 0;
             settleLastCount = -1;
             settleCount = 0;
+            pendingDye.Clear();
             RememberLayout(houseId, current);
             return;
         }
 
-        DiffAndLog(baseline, current, houseId);
-        baseline = current;
-        RememberLayout(houseId, current);
+        DiffAndLog(baseline, current, houseId, live: true);
+        baseline = MergeBaseline(baseline, current);
+        RememberLayout(houseId, baseline);
     }
 
     private void RememberLayout(ulong houseId, Dictionary<int, FurnitureRecord> layout)
@@ -204,7 +211,7 @@ public sealed class HousingMonitor : IDisposable
         dirty = true;
     }
 
-    private void DiffAndLog(Dictionary<int, FurnitureRecord> oldSet, Dictionary<int, FurnitureRecord> newSet, ulong houseId)
+    private void DiffAndLog(Dictionary<int, FurnitureRecord> oldSet, Dictionary<int, FurnitureRecord> newSet, ulong houseId, bool live)
     {
         foreach (var change in LayoutDiffer.Diff(oldSet, newSet))
         {
@@ -215,16 +222,83 @@ public sealed class HousingMonitor : IDisposable
                     break;
                 case HistoryAction.Removed:
                     LogSimple(HistoryAction.Removed, change.Index, change.Before, houseId);
+                    pendingDye.Remove(change.Index);
                     break;
                 case HistoryAction.Moved:
                 case HistoryAction.Rotated:
                     LogMovement(change.Action, change.Index, change.Before, change.After, houseId);
                     break;
                 case HistoryAction.Redyed:
-                    LogRedyed(change.Index, change.Before, change.After, houseId);
+                    // Live: defer (previews change stain). Away-diff: stable snapshot, log now.
+                    if (live)
+                        TrackPendingDye(change.Index, change.After.Stain);
+                    else
+                        LogRedyed(change.Index, change.Before, change.After, houseId);
                     break;
             }
         }
+
+        if (live)
+            CommitSettledDyes(oldSet, newSet, houseId);
+    }
+
+    private void TrackPendingDye(int index, byte target)
+    {
+        // Keep the original timer while the target color is unchanged, so hovering the same
+        // swatch accrues toward "settled"; a new color resets it.
+        if (pendingDye.TryGetValue(index, out var p) && p.target == target)
+            return;
+        pendingDye[index] = (target, DateTime.Now);
+    }
+
+    private void CommitSettledDyes(Dictionary<int, FurnitureRecord> oldSet, Dictionary<int, FurnitureRecord> newSet, ulong houseId)
+    {
+        if (pendingDye.Count == 0)
+            return;
+
+        var done = new List<int>();
+        foreach (var (index, p) in pendingDye)
+        {
+            if (!newSet.TryGetValue(index, out var now))
+            {
+                done.Add(index); // item removed
+                continue;
+            }
+
+            var committed = oldSet.TryGetValue(index, out var prev) ? prev : now;
+            if (now.Stain == committed.Stain)
+            {
+                done.Add(index); // back to the committed color (preview cancelled)
+                continue;
+            }
+
+            if (now.Stain == p.target && (DateTime.Now - p.since).TotalSeconds >= DyeSettleSeconds)
+            {
+                LogRedyed(index, committed, now, houseId);
+                done.Add(index);
+            }
+        }
+
+        foreach (var index in done)
+            pendingDye.Remove(index);
+    }
+
+    // Adopt the new snapshot, but hold the committed stain for any item with a pending dye,
+    // so a preview color doesn't stick and we keep noticing the change until it settles.
+    private Dictionary<int, FurnitureRecord> MergeBaseline(Dictionary<int, FurnitureRecord> old, Dictionary<int, FurnitureRecord> current)
+    {
+        if (pendingDye.Count == 0)
+            return current;
+
+        var result = new Dictionary<int, FurnitureRecord>(current.Count);
+        foreach (var (index, rec) in current)
+        {
+            if (pendingDye.ContainsKey(index) && old.TryGetValue(index, out var prev))
+                result[index] = rec with { Stain = prev.Stain };
+            else
+                result[index] = rec;
+        }
+        return result;
     }
 
     // Prefer the resolved sheet row for naming; fall back to the raw id so the log shows
