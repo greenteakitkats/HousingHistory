@@ -16,7 +16,6 @@ namespace HousingHistory;
 /// </summary>
 public sealed class HousingMonitor : IDisposable
 {
-    private const double MoveCoalesceSeconds = 5.0;
     private const double SaveDebounceSeconds = 15.0;
 
     private static readonly JsonSerializerOptions JsonOpts = new() { IncludeFields = true };
@@ -334,25 +333,8 @@ public sealed class HousingMonitor : IDisposable
 
     private void LogMovement(HistoryAction action, int index, FurnitureRecord before, FurnitureRecord now, ulong houseId, HouseLocation location)
     {
-        // Coalesce a live drag/turn (many tiny updates) into one row: keep the original "from",
-        // just refresh the "to". A rotate that becomes a move upgrades Rotated -> Moved.
-        // (Skipped for away-diffs, which produce at most one entry per object anyway.)
-        if (!markAway && entries.Count > 0)
-        {
-            var top = entries[0];
-            if (top.ObjectIndex == index
-                && (top.Action == HistoryAction.Moved || top.Action == HistoryAction.Rotated)
-                && (DateTime.Now - top.Time).TotalSeconds < MoveCoalesceSeconds)
-            {
-                var upgraded = top.Action == HistoryAction.Rotated && action == HistoryAction.Moved
-                    ? HistoryAction.Moved
-                    : top.Action;
-                entries[0] = top with { Action = upgraded, Time = DateTime.Now, Position = now.Position, Rotation = now.Rotation };
-                dirty = true;
-                return;
-            }
-        }
-
+        // Every detected move/rotate gets its own row, so the log reads as a full history
+        // rather than a summary. Consecutive edits of the same item just stack up in order.
         AddEntry(new HistoryEntry(DateTime.Now, action, index, DisplayId(now), NameResolver.Resolve(DisplayId(now)),
             now.Position, now.Rotation, before.Position, before.Rotation, now.Stain, before.Stain,
             houseId, Plugin.ClientState.TerritoryType, markAway, location));
