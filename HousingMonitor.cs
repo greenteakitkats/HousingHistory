@@ -9,9 +9,10 @@ using FFXIVClientStructs.FFXIV.Client.Game;
 namespace HousingHistory;
 
 /// <summary>
-/// Polls the indoor furniture set and logs placements, removals, moves, rotations, and dye
-/// changes by diffing against the previous snapshot. On entering a house it diffs against the
-/// last-known layout to surface changes made while you were away. Purely read-only.
+/// Polls the furniture set, indoors or in the yard depending on where you're standing, and
+/// logs placements, removals, moves, rotations, and dye changes by diffing against the
+/// previous snapshot. On entering a house or yard it diffs against the last-known layout to
+/// surface changes made while you were away. Purely read-only.
 /// </summary>
 public sealed class HousingMonitor : IDisposable
 {
@@ -23,14 +24,17 @@ public sealed class HousingMonitor : IDisposable
     private readonly Plugin plugin;
     private readonly List<HistoryEntry> entries = new();
 
-    // Last-known full layout per house (houseId -> index -> state). Persisted so we can
-    // diff "what changed since last visit", including changes made while you were away.
+    // Last-known full layout per house (houseId -> index -> state), one dictionary for indoor
+    // furnishings and one for the yard, since a house's indoor and outdoor items are entirely
+    // separate sets. Persisted so we can diff "what changed since last visit".
     private Dictionary<ulong, Dictionary<int, FurnitureRecord>> savedLayouts = new();
+    private Dictionary<ulong, Dictionary<int, FurnitureRecord>> savedOutdoorLayouts = new();
 
-    // Live working state for the house we're currently inside.
+    // Live working state for wherever we're currently standing (indoors or in the yard).
     private Dictionary<int, FurnitureRecord> baseline = new();
     private bool haveBaseline;
     private ulong baselineHouseId;
+    private HouseLocation baselineLocation;
     private long lastStamp = long.MinValue;
     private DateTime lastPoll = DateTime.MinValue;
 
@@ -44,6 +48,7 @@ public sealed class HousingMonitor : IDisposable
     private int settleCount;
     private int settleLastCount = -1;
     private ulong settleHouseId;
+    private HouseLocation settleLocation;
     private DateTime houseFirstSeen;
 
     // When true, entries created by the current diff are tagged as detected-on-entry.
@@ -86,6 +91,7 @@ public sealed class HousingMonitor : IDisposable
         haveBaseline = false;
         baseline.Clear();
         settleHouseId = 0;
+        settleLocation = default;
         settleLastCount = -1;
         settleCount = 0;
         pendingDye.Clear();
@@ -117,12 +123,18 @@ public sealed class HousingMonitor : IDisposable
     private unsafe void Poll()
     {
         var manager = HousingManager.Instance();
-        if (manager == null || !manager->IsInside())
+        var location = manager != null && manager->IsOutside() ? HouseLocation.Outdoor
+            : manager != null && manager->IsInside() ? HouseLocation.Indoor
+            : (HouseLocation?)null;
+        if (manager == null || location == null)
         {
-            haveBaseline = false; // not in a readable house
+            haveBaseline = false; // not standing in a readable house or yard
             return;
         }
 
+        // GetFurnitureManager() returns whichever furniture set matches where we're standing,
+        // indoor or outdoor, so the rest of the pipeline (BuildSnapshot, LayoutDiffer) is the
+        // same for both. Only the saved-layout bucket and the per-entry tag differ.
         var furnitureManager = manager->GetFurnitureManager();
         if (furnitureManager == null)
         {
@@ -134,7 +146,7 @@ public sealed class HousingMonitor : IDisposable
         // since we last processed, there's nothing to diff, skip the snapshot build.
         var stamp = furnitureManager->LastUpdate;
         var houseId = (ulong)manager->GetCurrentHouseId();
-        if (haveBaseline && houseId == baselineHouseId && stamp == lastStamp)
+        if (haveBaseline && houseId == baselineHouseId && location == baselineLocation && stamp == lastStamp)
             return;
         lastStamp = stamp;
 
@@ -145,14 +157,16 @@ public sealed class HousingMonitor : IDisposable
             return;
         }
 
-        // First read after entering, or after moving to a different house (two plots can
-        // share a TerritoryType, so we key off HouseId, not territory).
-        if (!haveBaseline || houseId != baselineHouseId)
+        // First read after entering, after moving to a different house (two plots can share a
+        // TerritoryType, so we key off HouseId, not territory), or after stepping between
+        // indoors and the yard, which is a completely different furniture set.
+        if (!haveBaseline || houseId != baselineHouseId || location != baselineLocation)
         {
-            // New house in view, start the settle/grace timers.
-            if (settleHouseId != houseId)
+            // New house/location in view, start the settle/grace timers.
+            if (settleHouseId != houseId || settleLocation != location)
             {
                 settleHouseId = houseId;
+                settleLocation = location.Value;
                 settleLastCount = -1;
                 settleCount = 0;
                 houseFirstSeen = DateTime.UtcNow;
@@ -176,70 +190,75 @@ public sealed class HousingMonitor : IDisposable
             if (++settleCount < SettleReads || dwell < MinDwellSeconds)
                 return;
 
-            if (savedLayouts.TryGetValue(houseId, out var lastKnown))
+            var savedForLocation = SavedLayoutsFor(location.Value);
+            if (savedForLocation.TryGetValue(houseId, out var lastKnown))
             {
                 // We've been here before, log only what's different since last visit.
                 markAway = true;
-                try { DiffAndLog(lastKnown, current, houseId, live: false); }
+                try { DiffAndLog(lastKnown, current, houseId, location.Value, live: false); }
                 finally { markAway = false; }
             }
             else
             {
-                // First time we've ever seen this house, seed silently.
-                Plugin.Log.Information($"First visit to house {houseId:X}: {current.Count} item(s).");
+                // First time we've ever seen this house/location, seed silently.
+                Plugin.Log.Information($"First visit ({location}) to house {houseId:X}: {current.Count} item(s).");
             }
 
             baseline = current;
             baselineHouseId = houseId;
+            baselineLocation = location.Value;
             haveBaseline = true;
             settleHouseId = 0;
             settleLastCount = -1;
             settleCount = 0;
             pendingDye.Clear();
-            RememberLayout(houseId, current);
+            RememberLayout(houseId, location.Value, current);
             return;
         }
 
-        DiffAndLog(baseline, current, houseId, live: true);
+        DiffAndLog(baseline, current, houseId, location.Value, live: true);
         baseline = MergeBaseline(baseline, current);
-        RememberLayout(houseId, baseline);
+        RememberLayout(houseId, location.Value, baseline);
     }
 
-    private void RememberLayout(ulong houseId, Dictionary<int, FurnitureRecord> layout)
+    private Dictionary<ulong, Dictionary<int, FurnitureRecord>> SavedLayoutsFor(HouseLocation location)
+        => location == HouseLocation.Outdoor ? savedOutdoorLayouts : savedLayouts;
+
+    private void RememberLayout(ulong houseId, HouseLocation location, Dictionary<int, FurnitureRecord> layout)
     {
-        savedLayouts[houseId] = layout;
+        SavedLayoutsFor(location)[houseId] = layout;
         dirty = true;
     }
 
-    private void DiffAndLog(Dictionary<int, FurnitureRecord> oldSet, Dictionary<int, FurnitureRecord> newSet, ulong houseId, bool live)
+    private void DiffAndLog(Dictionary<int, FurnitureRecord> oldSet, Dictionary<int, FurnitureRecord> newSet, ulong houseId, HouseLocation location, bool live)
     {
         foreach (var change in LayoutDiffer.Diff(oldSet, newSet))
         {
             switch (change.Action)
             {
                 case HistoryAction.Placed:
-                    LogSimple(HistoryAction.Placed, change.Index, change.After, houseId);
+                    LogSimple(HistoryAction.Placed, change.Index, change.After, houseId, location);
                     break;
                 case HistoryAction.Removed:
-                    LogSimple(HistoryAction.Removed, change.Index, change.Before, houseId);
+                    LogSimple(HistoryAction.Removed, change.Index, change.Before, houseId, location);
                     pendingDye.Remove(change.Index);
                     break;
                 case HistoryAction.Moved:
                 case HistoryAction.Rotated:
-                    LogMovement(change.Action, change.Index, change.Before, change.After, houseId);
+                    LogMovement(change.Action, change.Index, change.Before, change.After, houseId, location);
                     break;
                 case HistoryAction.Redyed:
                     // Live: defer (previews change stain). Away-diff: stable snapshot, log now.
                     if (live)
                         TrackPendingDye(change.Index, change.After.Stain);
                     else
-                        LogRedyed(change.Index, change.Before, change.After, houseId);
+                        LogRedyed(change.Index, change.Before, change.After, houseId, location);
                     break;
             }
         }
 
         if (live)
-            CommitSettledDyes(oldSet, newSet, houseId);
+            CommitSettledDyes(oldSet, newSet, houseId, location);
     }
 
     private void TrackPendingDye(int index, byte target)
@@ -251,7 +270,7 @@ public sealed class HousingMonitor : IDisposable
         pendingDye[index] = (target, DateTime.Now);
     }
 
-    private void CommitSettledDyes(Dictionary<int, FurnitureRecord> oldSet, Dictionary<int, FurnitureRecord> newSet, ulong houseId)
+    private void CommitSettledDyes(Dictionary<int, FurnitureRecord> oldSet, Dictionary<int, FurnitureRecord> newSet, ulong houseId, HouseLocation location)
     {
         if (pendingDye.Count == 0)
             return;
@@ -274,7 +293,7 @@ public sealed class HousingMonitor : IDisposable
 
             if (now.Stain == p.target && (DateTime.Now - p.since).TotalSeconds >= DyeSettleSeconds)
             {
-                LogRedyed(index, committed, now, houseId);
+                LogRedyed(index, committed, now, houseId, location);
                 done.Add(index);
             }
         }
@@ -305,15 +324,15 @@ public sealed class HousingMonitor : IDisposable
     // a meaningful "#<rawId>" rather than "#0" if row resolution isn't working yet.
     private static uint DisplayId(FurnitureRecord r) => r.RowId != 0 ? r.RowId : r.Id;
 
-    private void LogSimple(HistoryAction action, int index, FurnitureRecord r, ulong houseId)
+    private void LogSimple(HistoryAction action, int index, FurnitureRecord r, ulong houseId, HouseLocation location)
         => AddEntry(new HistoryEntry(DateTime.Now, action, index, DisplayId(r), NameResolver.Resolve(DisplayId(r)),
-            r.Position, r.Rotation, null, 0f, r.Stain, r.Stain, houseId, Plugin.ClientState.TerritoryType, markAway));
+            r.Position, r.Rotation, null, 0f, r.Stain, r.Stain, houseId, Plugin.ClientState.TerritoryType, markAway, location));
 
-    private void LogRedyed(int index, FurnitureRecord before, FurnitureRecord now, ulong houseId)
+    private void LogRedyed(int index, FurnitureRecord before, FurnitureRecord now, ulong houseId, HouseLocation location)
         => AddEntry(new HistoryEntry(DateTime.Now, HistoryAction.Redyed, index, DisplayId(now), NameResolver.Resolve(DisplayId(now)),
-            now.Position, now.Rotation, null, 0f, now.Stain, before.Stain, houseId, Plugin.ClientState.TerritoryType, markAway));
+            now.Position, now.Rotation, null, 0f, now.Stain, before.Stain, houseId, Plugin.ClientState.TerritoryType, markAway, location));
 
-    private void LogMovement(HistoryAction action, int index, FurnitureRecord before, FurnitureRecord now, ulong houseId)
+    private void LogMovement(HistoryAction action, int index, FurnitureRecord before, FurnitureRecord now, ulong houseId, HouseLocation location)
     {
         // Coalesce a live drag/turn (many tiny updates) into one row: keep the original "from",
         // just refresh the "to". A rotate that becomes a move upgrades Rotated -> Moved.
@@ -336,7 +355,7 @@ public sealed class HousingMonitor : IDisposable
 
         AddEntry(new HistoryEntry(DateTime.Now, action, index, DisplayId(now), NameResolver.Resolve(DisplayId(now)),
             now.Position, now.Rotation, before.Position, before.Rotation, now.Stain, before.Stain,
-            houseId, Plugin.ClientState.TerritoryType, markAway));
+            houseId, Plugin.ClientState.TerritoryType, markAway, location));
     }
 
     private void AddEntry(HistoryEntry entry)
@@ -404,7 +423,7 @@ public sealed class HousingMonitor : IDisposable
             if (manager == null)
                 return;
 
-            Plugin.Log.Information($"[dump] IsInside={manager->IsInside()} HouseId={(ulong)manager->GetCurrentHouseId():X}");
+            Plugin.Log.Information($"[dump] IsInside={manager->IsInside()} IsOutside={manager->IsOutside()} HouseId={(ulong)manager->GetCurrentHouseId():X}");
 
             var furnitureManager = manager->GetFurnitureManager();
             Plugin.Log.Information($"[dump] FurnitureManager: {(furnitureManager == null ? "null" : "ok")}");
@@ -456,6 +475,9 @@ public sealed class HousingMonitor : IDisposable
     private static string LayoutsPath
         => Path.Combine(Plugin.PluginInterface.ConfigDirectory.FullName, "layouts.json");
 
+    private static string OutdoorLayoutsPath
+        => Path.Combine(Plugin.PluginInterface.ConfigDirectory.FullName, "layouts_outdoor.json");
+
     private void MaybeSave()
     {
         if (!dirty || (DateTime.UtcNow - lastSave).TotalSeconds < SaveDebounceSeconds)
@@ -483,6 +505,12 @@ public sealed class HousingMonitor : IDisposable
                 savedLayouts = JsonSerializer.Deserialize<Dictionary<ulong, Dictionary<int, FurnitureRecord>>>(
                     File.ReadAllText(LayoutsPath), JsonOpts) ?? new();
             }
+
+            if (File.Exists(OutdoorLayoutsPath))
+            {
+                savedOutdoorLayouts = JsonSerializer.Deserialize<Dictionary<ulong, Dictionary<int, FurnitureRecord>>>(
+                    File.ReadAllText(OutdoorLayoutsPath), JsonOpts) ?? new();
+            }
         }
         catch (Exception ex)
         {
@@ -498,6 +526,7 @@ public sealed class HousingMonitor : IDisposable
             Plugin.PluginInterface.ConfigDirectory.Create();
             File.WriteAllText(HistoryPath, JsonSerializer.Serialize(entries, JsonOpts));
             File.WriteAllText(LayoutsPath, JsonSerializer.Serialize(savedLayouts, JsonOpts));
+            File.WriteAllText(OutdoorLayoutsPath, JsonSerializer.Serialize(savedOutdoorLayouts, JsonOpts));
             dirty = false;
             lastSave = DateTime.UtcNow;
         }

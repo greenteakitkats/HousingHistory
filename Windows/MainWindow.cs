@@ -113,6 +113,13 @@ public class MainWindow : Window, IDisposable
                 ImGui.SameLine();
             }
             ImGui.Text(e.ItemName);
+            if (e.Location == HouseLocation.Outdoor)
+            {
+                ImGui.SameLine();
+                ImGui.TextDisabled("(yard)");
+                if (ImGui.IsItemHovered())
+                    ImGui.SetTooltip("This was outside in the yard, not indoors.");
+            }
             if (e.WhileAway)
             {
                 ImGui.SameLine();
