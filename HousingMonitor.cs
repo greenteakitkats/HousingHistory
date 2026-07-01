@@ -349,7 +349,10 @@ public sealed class HousingMonitor : IDisposable
             entries.RemoveRange(max, entries.Count - max);
 
         dirty = true;
-        Plugin.Log.Debug($"{entry.Action}{(entry.WhileAway ? " (away)" : "")}: {entry.ItemName} (#{entry.FurnitureId}) @ {entry.Position}");
+        // Information, not Debug: this is cheap (only fires on an actual detected change) and
+        // showing the raw index/id here is what let us diagnose the indoor name-resolution bug
+        // in the past; keeping it visible without a log-level change pays off again later.
+        Plugin.Log.Information($"[{entry.Location}] {entry.Action}{(entry.WhileAway ? " (away)" : "")}: {entry.ItemName} (#{entry.FurnitureId}) idx={entry.ObjectIndex} @ {entry.Position}");
     }
 
     private static unsafe Dictionary<int, FurnitureRecord>? BuildSnapshot(HousingFurnitureManager* furnitureManager)
