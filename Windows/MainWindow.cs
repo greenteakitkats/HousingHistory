@@ -65,6 +65,10 @@ public class MainWindow : Window, IDisposable
         DrawFilter("New only", cfg.ShowOnlySinceLastOpen, v => { cfg.ShowOnlySinceLastOpen = v; cfg.Save(); });
         if (ImGui.IsItemHovered())
             ImGui.SetTooltip("Only show changes since you last closed this window.");
+        ImGui.SameLine();
+        DrawFilter("Apply mode", cfg.EnableApplyToSelected, v => { cfg.EnableApplyToSelected = v; cfg.Save(); });
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("When on, clicking a coordinate MOVES the item selected in housing layout mode there (writes to the game, like BDTH). Off = copy to clipboard.");
 
         DrawTodaySummary();
         ImGui.Separator();
@@ -175,7 +179,7 @@ public class MainWindow : Window, IDisposable
         }
     }
 
-    private static void CopyableCoord(string label, Vector3 pos, bool muted, int id)
+    private void CopyableCoord(string label, Vector3 pos, bool muted, int id)
     {
         if (muted)
             ImGui.PushStyleColor(ImGuiCol.Text, ImGui.GetColorU32(ImGuiCol.TextDisabled));
@@ -185,11 +189,24 @@ public class MainWindow : Window, IDisposable
         if (muted)
             ImGui.PopStyleColor();
 
+        var applyMode = plugin.Configuration.EnableApplyToSelected;
         if (clicked)
-            ImGui.SetClipboardText($"{pos.X:0.000} {pos.Y:0.000} {pos.Z:0.000}");
+        {
+            if (applyMode)
+                HousingWriter.TryApplyPosition(pos);
+            else
+                ImGui.SetClipboardText($"{pos.X:0.000} {pos.Y:0.000} {pos.Z:0.000}");
+        }
 
         if (ImGui.IsItemHovered())
-            ImGui.SetTooltip("Click to copy X Y Z to clipboard");
+        {
+            if (applyMode)
+                ImGui.SetTooltip(HousingWriter.CanApply()
+                    ? "Click to move the selected item here."
+                    : "Apply mode: select an item in housing layout mode first.");
+            else
+                ImGui.SetTooltip("Click to copy X Y Z to clipboard.");
+        }
     }
 
     private void DrawTodaySummary()

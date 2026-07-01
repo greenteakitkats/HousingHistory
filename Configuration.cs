@@ -28,6 +28,12 @@ public class Configuration : IPluginConfiguration
     /// <summary>When the window was last closed — the watermark for "new only".</summary>
     public DateTime SeenWatermark { get; set; } = DateTime.MinValue;
 
+    /// <summary>
+    /// When on, clicking a coordinate moves the item selected in housing layout mode there
+    /// (writes to the game, like BDTH), instead of copying to the clipboard. Off by default.
+    /// </summary>
+    public bool EnableApplyToSelected { get; set; } = false;
+
     // Saving is exposed here just to keep call sites tidy.
     public void Save() => Plugin.PluginInterface.SavePluginConfig(this);
 }

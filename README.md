@@ -13,6 +13,8 @@ changed.
 - Logs **placements, removals, moves, rotations, and dye changes**, with timestamps
 - **Coordinates** for everything — **click a coordinate to copy** `X Y Z` to your
   clipboard (paste it back into BDTH to undo a move)
+- **Apply mode** (opt-in) — click a coordinate to snap the item you have selected in
+  housing layout mode straight to it, for true one-click undo (writes like BDTH)
 - **Item icons** and **dye color swatches** so the log is easy to scan
 - **Search**, per-action **filters**, and a **"today" summary**
 - **"Since last visit"** — when you return to a house, see what changed while you
@@ -47,7 +49,9 @@ changed.
 
 - **Indoor furnishings only** for now.
 - It logs *what* changed, never *who* — the game doesn't expose who edited a house.
-- It's read-only and gives no gameplay advantage, in line with Dalamud's plugin policy.
+- It's **read-only by default**, in line with Dalamud's plugin policy. The optional
+  *Apply mode* is the one exception — it moves the selected item exactly like Burning
+  Down the House, and only while you have an item selected in layout mode.
 
 ## Building / contributing
 
